@@ -72,7 +72,7 @@ pipeline {
                         expression { changedProjects.contains('cards') }
                     }
                     steps {
-                        dir('exchangerates') {
+                        dir('cards') {
                             sh 'mvn clean install -DskipTests'
                         }
                     }
@@ -114,10 +114,10 @@ pipeline {
 
                 stage('Jib cards') {
                     when {
-                        expression { changedProjects.contains('exchangerates') }
+                        expression { changedProjects.contains('cards') }
                     }
                     steps {
-                        dir('exchangerates') {
+                        dir('cards') {
                             script {
                                 def tag = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
                                 def imageRef = "${IMAGE_NAME_EXCHANGERATES}:${tag}"
