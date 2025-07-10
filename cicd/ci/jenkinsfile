@@ -83,7 +83,7 @@ pipeline {
         stage('Code Analysis') {
             steps {
                 script {
-                    withSonarQubeEnv('SonarQube') {
+                    withSonarQubeEnv('Sonarqube') {
                         sh './gradlew sonar -Dsonar.login=$SONAR_AUTH_TOKEN'
                     }
 
