@@ -19,7 +19,7 @@
 	<artifactId>accounts</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
 	<name>accounts</name>
-	<description>Microservice for Accounts</description>
+	<description>Microservice API for Accounts</description>
 	<url />
 	<licenses>
 		<license />
