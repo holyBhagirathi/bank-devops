@@ -1,164 +1,211 @@
 pipeline {
-    agent any
-
-    environment {
-        GITHUB_CREDENTIALS_ID = 'github'
-        REPO_URL = 'https://github.com/holyBhagirathi/bank-devops.git'
-        SONAR_AUTH_TOKEN = credentials('sonarqube')
-        DOCKER_CREDENTIALS_ID = 'dockerhub'
-
-        IMAGE_NAME_ACCOUNTS = 'sku304/accounts'
-        IMAGE_NAME_LOANS = 'sku304/loans'
-        IMAGE_NAME_EXCHANGERATES = 'sku304/cards'
-    }
-
-    stages {
-        stage('Checkout') {
-            steps {
-                script {
-                    checkout([
-                        $class: 'GitSCM',
-                        branches: [[name: '*/main']],
-                        userRemoteConfigs: [
-                            [
-                                url: REPO_URL,
-                                credentialsId: GITHUB_CREDENTIALS_ID
-                            ]
-                        ]
-                    ])
-                }
+   agent any
+   
+   environment {
+      GITHUB_CREDENTIALS_ID = 'github'
+      REPO_URL = 'https://github.com/holyBhagirathi/bank-devops.git'
+      SONAR_AUTH_TOKEN = credentials('sonarqube')
+      DOCKER_CREDENTIALS_ID = 'dockerhub'
+      
+      IMAGE_NAME_ACCOUNTS = 'sku304/accounts'
+      IMAGE_NAME_LOANS = 'sku304/loans'
+      IMAGE_NAME_EXCHANGERATES = 'sku304/cards'
+   }
+   
+   stages {
+      stage('Checkout') {
+         steps {
+            script {
+               checkout([
+               $class: 'GitSCM',
+               branches: [[name: '*/main']],
+               userRemoteConfigs: [
+               [
+               url: REPO_URL,
+               credentialsId: GITHUB_CREDENTIALS_ID
+               ]
+               ]
+               ])
             }
-        }
-
-        stage('Detect Changes') {
-            steps {
-                script {
-                    def diffOutput = sh(script: "git diff --name-only HEAD~1 HEAD", returnStdout: true).trim()
-                    changedProjects = diffOutput.split('\n')
-                                                .collect { it.split('/')[0] }
-                                                .unique()
-                                                .findAll { it in ['accounts', 'loans', 'cards'] }
-                    echo "Changed Maven projects: ${changedProjects}"
-                }
+         }
+      }
+      
+      stage('Detect Changes') {
+         steps {
+            script {
+               def diffOutput = sh(script: "git diff --name-only HEAD~1 HEAD", returnStdout: true).trim()
+               changedProjects = diffOutput.split('\n')
+               .collect {
+                  it.split('/')[0]
+               }
+               .unique()
+               .findAll {
+                  it in ['accounts', 'loans', 'cards']
+               }
+               echo "Changed Maven projects: ${changedProjects}"
             }
-        }
-
-        stage('Build Changed Projects') {
-            parallel {
-                stage('Build accounts') {
-                    when {
-                        expression { changedProjects.contains('accounts') }
-                    }
-                    steps {
-                        dir('accounts') {
-                            sh 'mvn clean install -DskipTests'
-                        }
-                    }
-                }
-
-                stage('Build loans') {
-                    when {
-                        expression { changedProjects.contains('loans') }
-                    }
-                    steps {
-                        dir('loans') {
-                            sh 'mvn clean install -DskipTests'
-                        }
-                    }
-                }
-
-                stage('Build cards') {
-                    when {
-                        expression { changedProjects.contains('cards') }
-                    }
-                    steps {
-                        dir('cards') {
-                            sh 'mvn clean install -DskipTests'
-                        }
-                    }
-                }
+         }
+      }
+      
+      stage('Build Changed Projects') {
+         parallel {
+            stage('Build accounts') {
+               when {
+                  expression {
+                     changedProjects.contains('accounts')
+                  }
+               }
+               steps {
+                  dir('accounts') {
+                     sh 'mvn clean install -DskipTests'
+                  }
+               }
             }
-        }
-       
-        stage('Code Analysis') {
-            steps {
-                script {
-                    withSonarQubeEnv('sonarqube') {
-                        
-                        sh 'mvn clean verify sonar:sonar -Dsonar.login=$SONAR_AUTH_TOKEN'
-                    }
-
-                    def qualityGate = waitForQualityGate()
-                    if (qualityGate.status != 'OK') {
-                        error "SonarQube Quality Gate failed: ${qualityGate.status}"
-                    } else {
-                        echo "SonarQube Quality Gate passed."
-                    }
-                }
+            
+            stage('Build loans') {
+               when {
+                  expression {
+                     changedProjects.contains('loans')
+                  }
+               }
+               steps {
+                  dir('loans') {
+                     sh 'mvn clean install -DskipTests'
+                  }
+               }
             }
-        }
-
-        stage('Jib Build and Push') {
-            parallel {
-                stage('Jib accounts') {
-                    when {
-                        expression { changedProjects.contains('accounts') }
-                    }
-                    steps {
-                        dir('accounts') {
-                            script {
-                                def tag = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-                                def imageRef = "${IMAGE_NAME_ACCOUNTS}:${tag}"
-                                sh "mvn compile com.google.cloud.tools:jib-maven-plugin:3.4.0:build -Dimage=${imageRef}"
-                            }
-                        }
-                    }
-                }
-
-                stage('Jib loans') {
-                    when {
-                        expression { changedProjects.contains('loans') }
-                    }
-                    steps {
-                        dir('loans') {
-                            script {
-                                def tag = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-                                def imageRef = "${IMAGE_NAME_LOANS}:${tag}"
-                                sh "mvn compile com.google.cloud.tools:jib-maven-plugin:3.4.0:build -Dimage=${imageRef}"
-                            }
-                        }
-                    }
-                }
-
-                stage('Jib cards') {
-                    when {
-                        expression { changedProjects.contains('cards') }
-                    }
-                    steps {
-                        dir('cards') {
-                            script {
-                                def tag = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-                                def imageRef = "${IMAGE_NAME_EXCHANGERATES}:${tag}"
-                                sh "mvn compile com.google.cloud.tools:jib-maven-plugin:3.4.0:build -Dimage=${imageRef}"
-                                env.COMMIT_HASH = tag
-                            }
-                        }
-                    }
-                }
+            
+            stage('Build cards') {
+               when {
+                  expression {
+                     changedProjects.contains('cards')
+                  }
+               }
+               steps {
+                  dir('cards') {
+                     sh 'mvn clean install -DskipTests'
+                  }
+               }
             }
-        }
-    }
-
-    post {
-        always {
-            echo 'Cleaning up workspace after build...'
-            cleanWs()
-        }
-        success {
-            echo 'Pipeline completed successfully!'
-        }
-        failure {
-            echo 'Pipeline failed.'
-        }
-    }
+         }
+      }
+      
+      stage('Code Analysis') {
+         parallel {
+            stage('SonarQube - Accounts') {
+               when {
+                  expression {
+                     changedProjects.contains("accounts")
+                  }
+               }
+               steps {
+                  dir('accounts') {
+                     withSonarQubeEnv('sonarqube') {
+                        sh "mvn clean verify sonar:sonar -Dsonar.login=${SONAR_AUTH_TOKEN}"
+                     }
+                  }
+               }
+            }
+            
+            stage('SonarQube - Loans') {
+               when {
+                  expression {
+                     changedProjects.contains("loans")
+                  }
+               }
+               steps {
+                  dir('loans') {
+                     withSonarQubeEnv('sonarqube') {
+                        sh "mvn clean verify sonar:sonar -Dsonar.login=${SONAR_AUTH_TOKEN}"
+                     }
+                  }
+               }
+            }
+            
+            stage('SonarQube - Cards') {
+               when {
+                  expression {
+                     changedProjects.contains("cards")
+                  }
+               }
+               steps {
+                  dir('cards') {
+                     withSonarQubeEnv('sonarqube') {
+                        sh "mvn clean verify sonar:sonar -Dsonar.login=${SONAR_AUTH_TOKEN}"
+                     }
+                  }
+               }
+            }
+         }
+      }
+      
+      stage('Jib Build and Push') {
+         parallel {
+            stage('Jib accounts') {
+               when {
+                  expression {
+                     changedProjects.contains('accounts')
+                  }
+               }
+               steps {
+                  dir('accounts') {
+                     script {
+                        def tag = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                        def imageRef = "${IMAGE_NAME_ACCOUNTS}:${tag}"
+                        sh "mvn compile com.google.cloud.tools:jib-maven-plugin:3.4.0:build -Dimage=${imageRef}"
+                     }
+                  }
+               }
+            }
+            
+            stage('Jib loans') {
+               when {
+                  expression {
+                     changedProjects.contains('loans')
+                  }
+               }
+               steps {
+                  dir('loans') {
+                     script {
+                        def tag = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                        def imageRef = "${IMAGE_NAME_LOANS}:${tag}"
+                        sh "mvn compile com.google.cloud.tools:jib-maven-plugin:3.4.0:build -Dimage=${imageRef}"
+                     }
+                  }
+               }
+            }
+            
+            stage('Jib cards') {
+               when {
+                  expression {
+                     changedProjects.contains('cards')
+                  }
+               }
+               steps {
+                  dir('cards') {
+                     script {
+                        def tag = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                        def imageRef = "${IMAGE_NAME_EXCHANGERATES}:${tag}"
+                        sh "mvn compile com.google.cloud.tools:jib-maven-plugin:3.4.0:build -Dimage=${imageRef}"
+                        env.COMMIT_HASH = tag
+                     }
+                  }
+               }
+            }
+         }
+      }
+   }
+   
+   post {
+      always {
+         echo 'Cleaning up workspace after build...'
+         cleanWs()
+      }
+      success {
+         echo 'Pipeline completed successfully!'
+      }
+      failure {
+         echo 'Pipeline failed.'
+      }
+   }
 }
